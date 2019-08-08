@@ -36,6 +36,11 @@ def db_select_mock(mocker):
 
 
 @pytest.fixture()
+def fetch_entitlements_mock(mocker):
+    return mocker.patch("twitch_plugin.fetch_entitlements")
+
+
+@pytest.fixture()
 def webbrowser_opentab_mock(mocker):
     return mocker.patch("webbrowser.open_new_tab")
 

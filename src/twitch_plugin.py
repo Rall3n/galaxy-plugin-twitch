@@ -15,6 +15,7 @@ from galaxy.proc_tools import process_iter
 
 from twitch_db_client import db_select, get_cookie
 from twitch_launcher_client import TwitchLauncherClient
+from twitch_api_requests import fetch_entitlements, validate_token
 
 
 def is_windows() -> bool:
@@ -73,16 +74,14 @@ class TwitchPlugin(Plugin):
     def _get_owned_games(self) -> Dict[str, Game]:
         try:
             return {
-                row["ProductIdStr"]: Game(
-                    game_id=row["ProductIdStr"]
-                    , game_title=row["ProductTitle"]
+                it['product']['id']: Game(
+                    game_id=it['product']['id']
+                    , game_title=it['product']['title']
                     , dlcs=None
                     , license_info=LicenseInfo(LicenseType.SinglePurchase)
                 )
-                for row in db_select(
-                    db_path=self._db_owned_games
-                    , query="select ProductIdStr, ProductTitle from DbSet"
-                )
+                for it in fetch_entitlements(self.auth_token)
+                if it['product']['productLine'] == 'Twitch:FuelGame'
             }
         except Exception:
             logging.exception("Failed to get owned games")
@@ -159,6 +158,7 @@ class TwitchPlugin(Plugin):
         self._owned_games_cache: Dict[str, Game] = {}
         self._local_games_cache: Dict[str, InstalledGame] = {}
 
+        self.auth_token = ""
         super().__init__(Platform(self._manifest["platform"]), self._manifest["version"], reader, writer, token)
 
     def handshake_complete(self) -> None:
@@ -182,19 +182,30 @@ class TwitchPlugin(Plugin):
                 logging.warning("No user info")
                 return None
 
+            if not 'authToken' in user_info or not user_info['authToken']:
+                logging.warning("No auth token")
+                return None
+            
+            if not validate_token(user_info['authToken']):
+                logging.warning("Invalid auth token")
+                return None
+
             user_id = user_info.get("id")
             user_name = user_info.get("displayName")
+            auth_token = user_info.get("authToken")
 
             if not user_id or not user_name:
                 logging.warning("No user id/name")
                 return None
 
-            return user_id, user_name
+            return user_id, user_name, auth_token
 
         auth_info = get_auth_info()
         if not auth_info:
             await self._launcher_client.start_launcher()
             raise InvalidCredentials
+
+        self.auth_token = auth_info[2]
 
         self.store_credentials({"external-credentials": "force-reconnect-on-startup"})
         return Authentication(user_id=auth_info[0], user_name=auth_info[1])

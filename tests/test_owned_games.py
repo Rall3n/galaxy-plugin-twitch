@@ -3,10 +3,13 @@ from galaxy.api.consts import LicenseType
 from galaxy.api.types import Game, LicenseInfo
 
 
-def _db_owned_game(game_id, title):
+def _api_owned_game(game_id, title):
     return {
-        "ProductIdStr": game_id
-        , "ProductTitle": title
+        "product": {
+            "id": game_id
+            , "title": title
+            , "productLine": "Twitch:FuelGame"
+        }
     }
 
 
@@ -20,14 +23,14 @@ def get_local_games_mock(mocker):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("db_response, owned_games", [
+@pytest.mark.parametrize("request_response, owned_games", [
     (Exception, [])
     , ([], [])
     , (
         [
-            _db_owned_game("0c0126bf-8d56-46c0-ac10-fa07a4f2ad70", "The Banner Saga")
-            , _db_owned_game("8530321b-a8dd-4a74-baa3-24a247454c36", "The Banner Saga 2")
-            , _db_owned_game("f41d91c5-83b4-40e1-869e-01a0d6056f97", "Gone Home")
+            _api_owned_game("0c0126bf-8d56-46c0-ac10-fa07a4f2ad70", "The Banner Saga")
+            , _api_owned_game("8530321b-a8dd-4a74-baa3-24a247454c36", "The Banner Saga 2")
+            , _api_owned_game("f41d91c5-83b4-40e1-869e-01a0d6056f97", "Gone Home")
         ], [
             _owned_game("0c0126bf-8d56-46c0-ac10-fa07a4f2ad70", "The Banner Saga")
             , _owned_game("8530321b-a8dd-4a74-baa3-24a247454c36", "The Banner Saga 2")
@@ -35,20 +38,14 @@ def get_local_games_mock(mocker):
         ]
     )
 ])
-async def test_owned_games(
-    db_response
-    , owned_games
-    , installed_twitch_plugin
-    , db_select_mock
-    , get_local_games_mock
-):
-    db_select_mock.side_effect = [db_response]
+async def test_owned_games(request_response, owned_games, installed_twitch_plugin, fetch_entitlements_mock):
+    fetch_entitlements_mock.return_value = request_response
 
     installed_twitch_plugin.handshake_complete()
 
     assert await installed_twitch_plugin.get_owned_games() == owned_games
 
-    db_select_mock.assert_called_once()
+    fetch_entitlements_mock.assert_called_once()
 
 
 _GAME_ID = "game-id"
@@ -60,38 +57,38 @@ _GAME_TITLE = "game title"
     # not owned -> not owned
     ([], [], [])
     # not owned -> owned
-    , ([], [_db_owned_game(_GAME_ID, _GAME_TITLE)], ["add"])
+    , ([], [_api_owned_game(_GAME_ID, _GAME_TITLE)], ["add"])
     # owned -> owned
     , (
-        [_db_owned_game(_GAME_ID, _GAME_TITLE)]
-        , [_db_owned_game(_GAME_ID, _GAME_TITLE)]
+        [_api_owned_game(_GAME_ID, _GAME_TITLE)]
+        , [_api_owned_game(_GAME_ID, _GAME_TITLE)]
         , []
     )
     # owned -> not owned
-    , ([_db_owned_game(_GAME_ID, _GAME_TITLE)], [], ["remove"])
+    , ([_api_owned_game(_GAME_ID, _GAME_TITLE)], [], ["remove"])
 ])
 async def test_owned_game_update(
     old_game_state
     , new_game_state
     , expected_calls
     , installed_twitch_plugin
-    , db_select_mock
+    , fetch_entitlements_mock
     , get_local_games_mock
     , mocker
 ):
     # prepare
-    db_select_mock.return_value = old_game_state
+    fetch_entitlements_mock.return_value = old_game_state
     game_added_mock = mocker.patch("twitch_plugin.TwitchPlugin.add_game")
     game_removed_mock = mocker.patch("twitch_plugin.TwitchPlugin.remove_game")
 
     installed_twitch_plugin.handshake_complete()
-    assert db_select_mock.call_count == 1
+    assert fetch_entitlements_mock.call_count == 1
 
     # test
-    db_select_mock.return_value = new_game_state
+    fetch_entitlements_mock.return_value = new_game_state
 
     installed_twitch_plugin.tick()
-    assert db_select_mock.call_count == 2
+    assert fetch_entitlements_mock.call_count == 2
 
     if "add" in expected_calls:
         game_added_mock.assert_called_once_with(_owned_game(_GAME_ID, _GAME_TITLE))
