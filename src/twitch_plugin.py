@@ -182,20 +182,20 @@ class TwitchPlugin(Plugin):
                 logging.warning("No user info")
                 return None
 
-            if not 'authToken' in user_info or not user_info['authToken']:
-                logging.warning("No auth token")
-                return None
-            
-            if not validate_token(user_info['authToken']):
-                logging.warning("Invalid auth token")
-                return None
-
             user_id = user_info.get("id")
             user_name = user_info.get("displayName")
-            auth_token = user_info.get("authToken")
+            auth_token = user_info.get("authToken", None)
 
             if not user_id or not user_name:
                 logging.warning("No user id/name")
+                return None
+
+            if not auth_token:
+                logging.warning("No auth token")
+                return None
+            
+            if not validate_token(auth_token):
+                logging.warning("Invalid auth token")
                 return None
 
             return user_id, user_name, auth_token
