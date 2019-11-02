@@ -1,11 +1,7 @@
-# import logging
-import asyncio
+import logging
 from typing import Dict, List
-from galaxy.http import create_client_session#, handle_exception
+from galaxy.http import create_client_session
 
-def sync_exec(coroutine):
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(coroutine)
 
 class TwitchBackendClient:
     VALIDATE_URL = "https://id.twitch.tv/oauth2/validate"
@@ -15,6 +11,7 @@ class TwitchBackendClient:
         self._session = create_client_session()
 
     async def validate_token(self, token) -> bool:
+        logging.info("Validating auth token")
         headers = { "Authorization": f"OAuth {token}" }
 
         response = await self._session.request('GET', self.VALIDATE_URL, headers=headers)
@@ -22,6 +19,7 @@ class TwitchBackendClient:
         return response.status == 200
 
     async def fetch_entitlements(self, token) -> List[Dict]:
+        logging.info("Fetching entitlements")
         headers = {
             "x-auth-twitch": token,
             "Accept-Encoding": "gzip",
