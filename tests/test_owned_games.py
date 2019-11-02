@@ -38,14 +38,15 @@ def get_local_games_mock(mocker):
         ]
     )
 ])
-async def test_owned_games(request_response, owned_games, installed_twitch_plugin, fetch_entitlements_mock):
-    fetch_entitlements_mock.return_value = request_response
+async def test_owned_games(request_response, owned_games, installed_twitch_plugin, twitch_backend_client):
+    twitch_backend_client.fetch_entitlements.return_value = request_response
 
     installed_twitch_plugin.handshake_complete()
+    await installed_twitch_plugin._update_owned_games()
 
-    assert await installed_twitch_plugin.get_owned_games() == owned_games
+    assert owned_games == await installed_twitch_plugin.get_owned_games()
 
-    fetch_entitlements_mock.assert_called_once()
+    twitch_backend_client.fetch_entitlements.assert_called_once()
 
 
 _GAME_ID = "game-id"
@@ -72,23 +73,24 @@ async def test_owned_game_update(
     , new_game_state
     , expected_calls
     , installed_twitch_plugin
-    , fetch_entitlements_mock
+    , twitch_backend_client
     , get_local_games_mock
     , mocker
 ):
     # prepare
-    fetch_entitlements_mock.return_value = old_game_state
+    twitch_backend_client.fetch_entitlements.return_value = old_game_state
     game_added_mock = mocker.patch("twitch_plugin.TwitchPlugin.add_game")
     game_removed_mock = mocker.patch("twitch_plugin.TwitchPlugin.remove_game")
 
     installed_twitch_plugin.handshake_complete()
-    assert fetch_entitlements_mock.call_count == 1
+    await installed_twitch_plugin.tick()
+    assert twitch_backend_client.fetch_entitlements.call_count == 1
 
     # test
-    fetch_entitlements_mock.return_value = new_game_state
+    twitch_backend_client.fetch_entitlements.return_value = new_game_state
 
-    installed_twitch_plugin.tick()
-    assert fetch_entitlements_mock.call_count == 2
+    await installed_twitch_plugin.tick()
+    assert twitch_backend_client.fetch_entitlements.call_count == 2
 
     if "add" in expected_calls:
         game_added_mock.assert_called_once_with(_owned_game(_GAME_ID, _GAME_TITLE))

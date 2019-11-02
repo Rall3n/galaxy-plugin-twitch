@@ -1,6 +1,7 @@
 import pytest
 from galaxy.api.types import LocalGame, LocalGameState
 from galaxy.proc_tools import ProcessId, ProcessInfo
+from galaxy.unittest.mock import AsyncMock
 
 _GAME_ID = "game-id"
 _INSTALL_PATH = "x:/games/game-id"
@@ -35,7 +36,7 @@ def process_iter_mock(mocker):
 
 @pytest.fixture()
 def get_owned_games_mock(mocker):
-    return mocker.patch("twitch_plugin.TwitchPlugin._get_owned_games", return_value={})
+    return mocker.patch("twitch_plugin.TwitchPlugin._get_owned_games", new=AsyncMock(return_value={}))
 
 
 @pytest.mark.asyncio
@@ -216,7 +217,7 @@ async def test_local_game_update(
     db_select_mock.return_value = [new_game_state]
     process_iter_mock.side_effect = [running_processes]
 
-    installed_twitch_plugin.tick()
+    await installed_twitch_plugin.tick()
     assert db_select_mock.call_count == 2
 
     if expected_call is None:

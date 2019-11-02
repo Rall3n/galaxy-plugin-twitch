@@ -15,7 +15,7 @@ from galaxy.proc_tools import process_iter
 
 from twitch_db_client import db_select, get_cookie
 from twitch_launcher_client import TwitchLauncherClient
-from twitch_api_requests import fetch_entitlements, validate_token
+from backend import TwitchBackendClient
 
 
 def is_windows() -> bool:
@@ -71,7 +71,9 @@ class TwitchPlugin(Plugin):
 
         return user_info
 
-    def _get_owned_games(self) -> Dict[str, Game]:
+    async def _get_owned_games(self) -> Dict[str, Game]:
+        data = await self._http_client.fetch_entitlements(self.auth_token)
+
         try:
             return {
                 it['product']['id']: Game(
@@ -80,22 +82,24 @@ class TwitchPlugin(Plugin):
                     , dlcs=None
                     , license_info=LicenseInfo(LicenseType.SinglePurchase)
                 )
-                for it in fetch_entitlements(self.auth_token)
+                for it in data
                 if it['product']['productLine'] == 'Twitch:FuelGame'
             }
         except Exception:
             logging.exception("Failed to get owned games")
             return {}
 
-    def _update_owned_games(self) -> None:
-        owned_games = self._get_owned_games()
+    async def _update_owned_games(self) -> None:
+        owned_games = await self._get_owned_games()
 
-        for game_id in self._owned_games_cache.keys() - owned_games.keys():
-            self.remove_game(game_id)
+        if not self._first_game_fetch:
+            for game_id in self._owned_games_cache.keys() - owned_games.keys():
+                self.remove_game(game_id)
 
-        for game_id in (owned_games.keys() - self._owned_games_cache.keys()):
-            self.add_game(owned_games[game_id])
+            for game_id in (owned_games.keys() - self._owned_games_cache.keys()):
+                self.add_game(owned_games[game_id])
 
+        self._first_game_fetch = False
         self._owned_games_cache = owned_games
 
     def _get_installed_games(self) -> Dict[str, InstalledGame]:
@@ -157,18 +161,19 @@ class TwitchPlugin(Plugin):
         self._launcher_client = TwitchLauncherClient()
         self._owned_games_cache: Dict[str, Game] = {}
         self._local_games_cache: Dict[str, InstalledGame] = {}
+        self._http_client = TwitchBackendClient()
+        self._first_game_fetch = True
 
         self.auth_token = ""
         super().__init__(Platform(self._manifest["platform"]), self._manifest["version"], reader, writer, token)
 
     def handshake_complete(self) -> None:
         self._launcher_client.update_install_path()
-        self._owned_games_cache = self._get_owned_games()
         self._local_games_cache = self._get_local_games()
 
-    def tick(self) -> None:
+    async def tick(self) -> None:
         self._launcher_client.update_install_path()
-        self._update_owned_games()
+        await self._update_owned_games()
         self._update_local_games_state()
 
     async def authenticate(self, stored_credentials: Optional[Dict] = None) -> Union[NextStep, Authentication]:
@@ -176,7 +181,7 @@ class TwitchPlugin(Plugin):
             webbrowser.open_new_tab("https://www.twitch.tv/downloads")
             raise InvalidCredentials
 
-        def get_auth_info() -> Optional[Tuple[str, str]]:
+        async def get_auth_info() -> Optional[Tuple[str, str]]:
             user_info = self._get_user_info()
             if not user_info:
                 logging.warning("No user info")
@@ -194,13 +199,13 @@ class TwitchPlugin(Plugin):
                 logging.warning("No auth token")
                 return None
             
-            if not validate_token(auth_token):
+            if not await self._http_client.validate_token(auth_token):
                 logging.warning("Invalid auth token")
                 return None
 
             return user_id, user_name, auth_token
 
-        auth_info = get_auth_info()
+        auth_info = await get_auth_info()
         if not auth_info:
             await self._launcher_client.start_launcher()
             raise InvalidCredentials
@@ -211,6 +216,9 @@ class TwitchPlugin(Plugin):
         return Authentication(user_id=auth_info[0], user_name=auth_info[1])
 
     async def get_owned_games(self) -> List[Game]:
+        if self._first_game_fetch:
+            await self._update_owned_games()
+        
         return list(self._owned_games_cache.values())
 
     async def get_local_games(self) -> List[LocalGame]:
@@ -238,6 +246,8 @@ class TwitchPlugin(Plugin):
         async def get_os_compatibility(self, game_id: str, context: Any) -> Optional[OSCompatibility]:
             return OSCompatibility.Windows
 
+    async def shutdown(self) -> None:
+        await self._http_client.close()
 
 def main():
     create_and_run_plugin(TwitchPlugin, sys.argv)

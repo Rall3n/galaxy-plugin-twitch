@@ -36,11 +36,6 @@ def db_select_mock(mocker):
 
 
 @pytest.fixture()
-def fetch_entitlements_mock(mocker):
-    return mocker.patch("twitch_plugin.fetch_entitlements")
-
-
-@pytest.fixture()
 def webbrowser_opentab_mock(mocker):
     return mocker.patch("webbrowser.open_new_tab")
 
@@ -74,7 +69,16 @@ def twitch_launcher_mock(is_launcher_installed_mock, cookies_db_path_mock):
 
 
 @pytest.fixture()
-def twitch_plugin_mock(manifest_mock) -> TwitchPlugin:
+def twitch_backend_client():
+    mock = MagicMock(spec=())
+    mock.validate_token = AsyncMock()
+    mock.fetch_entitlements = AsyncMock()
+    mock.close = AsyncMock()
+    return mock
+
+
+@pytest.fixture()
+def twitch_plugin_mock(manifest_mock, twitch_backend_client, mocker) -> TwitchPlugin:
     manifest_mock.return_value = {
         "name": "Galaxy Twitch plugin"
         , "platform": "twitch"
@@ -86,6 +90,8 @@ def twitch_plugin_mock(manifest_mock) -> TwitchPlugin:
         , "url": "https://github.com/nyash-qq/galaxy-plugin-twitch"
         , "script": "twitch_plugin.py"
     }
+
+    mocker.patch('twitch_plugin.TwitchBackendClient', return_value=twitch_backend_client)
     return TwitchPlugin(MagicMock(), MagicMock(), "handshake_token")
 
 
